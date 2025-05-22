@@ -1,55 +1,55 @@
-const bcrypt = require("bcrypt");
+const User = require("../models/User");
 const jwt = require("jsonwebtoken");
 
-// In-memory users store for now (replace with DB later)
-const users = [];
-
+// Signup controller
 const signup = async (req, res) => {
   const { email, password } = req.body;
 
-  // Basic validation
-  if (!email || !password) {
-    return res
-      .status(400)
-      .json({ message: "Email and password are required." });
+  try {
+    // Check if user already exists
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({ message: "User already exists" });
+    }
+
+    // Create new user — password will be hashed automatically by the model middleware
+    const newUser = new User({ email, password });
+    await newUser.save();
+
+    res.status(201).json({ message: "User registered successfully" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server error" });
   }
-
-  // Check if user exists
-  const userExists = users.find((u) => u.email === email);
-  if (userExists) {
-    return res.status(400).json({ message: "User already exists." });
-  }
-
-  // Hash password
-  const hashedPassword = await bcrypt.hash(password, 10);
-
-  // Save user
-  users.push({ email, password: hashedPassword });
-
-  res.status(201).json({ message: "User registered successfully" });
 };
 
+// Login controller
 const login = async (req, res) => {
   const { email, password } = req.body;
 
-  // Find user
-  const user = users.find((u) => u.email === email);
-  if (!user) {
-    return res.status(400).json({ message: "Invalid credentials" });
+  try {
+    // Find user by email
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(400).json({ message: "Invalid credentials" });
+    }
+
+    // Use model method to compare password
+    const isMatch = await user.comparePassword(password);
+    if (!isMatch) {
+      return res.status(400).json({ message: "Invalid credentials" });
+    }
+
+    // Generate JWT token
+    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
+      expiresIn: "1h",
+    });
+
+    res.json({ token });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server error" });
   }
-
-  // Compare password
-  const isMatch = await bcrypt.compare(password, user.password);
-  if (!isMatch) {
-    return res.status(400).json({ message: "Invalid credentials" });
-  }
-
-  // Create JWT
-  const token = jwt.sign({ email }, process.env.JWT_SECRET, {
-    expiresIn: "1h",
-  });
-
-  res.json({ token });
 };
 
 module.exports = { signup, login };
